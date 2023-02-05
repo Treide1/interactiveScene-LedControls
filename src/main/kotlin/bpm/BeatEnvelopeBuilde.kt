@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package bpm
 
 import org.openrndr.animatable.easing.Easer
@@ -6,12 +8,12 @@ import org.openrndr.animatable.easing.Linear
 
 // TODO:
 //  This class and its methods need documentation.
-class BeatEnvelopeBuilder internal constructor(){
+class BeatEnvelopeBuilder(val beatCount: Double) {
 
     private val segments = mutableListOf<EnvelopeSegment>()
 
-    var lastT = 0.0
-    var lastX = 0.0
+    var currentT = 0.0
+    var currentX = 0.0
 
     fun segment(fromT: Double, toT: Double, fromX: Double, toX: Double): EnvelopeSegment {
         if (fromT >= toT) throw IllegalArgumentException(
@@ -23,13 +25,13 @@ class BeatEnvelopeBuilder internal constructor(){
         if (seg.hasTimelineOverlap()) throw IllegalArgumentException("TODO")
 
         segments += seg
-        lastT = seg.toT
-        lastX = seg.toX
+        currentT = seg.toT
+        currentX = seg.toX
         return seg
 
     }
 
-    fun segmentJoin(toT: Double, toX: Double): EnvelopeSegment = segment(lastT, toT, lastX, toX)
+    fun join(toT: Double, toX: Double): EnvelopeSegment = segment(currentT, toT, currentX, toX)
 
     infix fun EnvelopeSegment.via(interpolationFunc: (Double) -> Double) {
         this.easer = object : Easer {
@@ -51,7 +53,7 @@ class BeatEnvelopeBuilder internal constructor(){
         this.easer = easer
     }
 
-    private fun build(bpm: Double, beatsPerLoop: Int) : BeatEnvelope {
+    fun build() : BeatEnvelope {
         // 1. We complete segments to be a complete timeline.
         // Any gaps are filled with segments with zeroEaser.
 
@@ -97,7 +99,7 @@ class BeatEnvelopeBuilder internal constructor(){
             }
             result
         }
-        return BeatEnvelope(bpm, beatsPerLoop, evaluation)
+        return BeatEnvelope(beatCount, evaluation)
     }
 
     class EnvelopeSegment(val fromT: Double, val toT: Double, val fromX: Double, val toX: Double, var easer: Easer = Linear()) {
@@ -127,12 +129,6 @@ class BeatEnvelopeBuilder internal constructor(){
         private val zeroEaser = object : Easer {
             override fun ease(t: Double, b: Double, c: Double, d: Double): Double = 0.0
             override fun velocity(t: Double, b: Double, c: Double, d: Double): Double = 0.0
-        }
-
-        fun BeatEnvelope.buildBySegments(block: BeatEnvelopeBuilder.() -> Unit): BeatEnvelope {
-            val builder = BeatEnvelopeBuilder()
-            builder.block()
-            return builder.build(this.bpm, this.beatsPerLoop)
         }
     }
 }
