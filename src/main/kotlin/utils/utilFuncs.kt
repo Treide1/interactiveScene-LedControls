@@ -10,6 +10,7 @@ import org.openrndr.math.Vector2
 import org.openrndr.math.asDegrees
 import org.openrndr.math.map
 import org.openrndr.shape.Rectangle
+import kotlin.reflect.*
 import kotlin.math.*
 
 /**
@@ -264,7 +265,7 @@ fun Double.lerp(B: Double, perc: Double): Double {
 
 /**
  * WIP: Idea for dynamic recalculation if primary value changes, so that secondary value requires update.
- * That might trigger a ternary value to update and so on.
+ * That might trigger a tertiary value to update and so on.
  */
 fun <T> calculation(function: () -> T): Calculation<T> {
     return Calculation(function)
@@ -288,4 +289,62 @@ class Calculation<T>(val function: () -> T) {
  */
 fun Vector2.getAngle(): Double {
     return atan2(this.x, this.y).asDegrees
+}
+
+/**
+ * Calculates ([this] + [add]) % [mod].
+ */
+fun Int.plusMod(add: Int, mod: Int): Int {
+    return (this + add) % mod
+}
+
+/**
+ * Unit sine:
+ * Mapping inputs from (0, 1) to (0, TAU).
+ */
+fun usin(x: Double): Double {
+    return sin(x * TAU)
+}
+
+/**
+ * Unit cosine:
+ * Mapping inputs from (0, 1) to (0, TAU).
+ */
+fun ucos(x: Double): Double {
+    return cos(x * TAU)
+}
+
+/**
+ * Flip the value of a boolean property belonging to an object.
+ */
+fun KMutableProperty0<Boolean>.flip() = set(!get())
+
+/**
+ * Calculates the mathematical correct modulus of [this] Double, constrained to given range.
+ * This is identical to finding the closest representative of the remainder class given modulus [mod] that is in range.
+ *
+ * The range is defined as the bounds-inclusive interval ([atLeast], [atMost]).
+ * Throws [IllegalArgumentException] if mod is non-positive or no valid representative exists.
+ *
+ * Example:
+ * <code> (3.0).modulusToRange(2.0, 5.0, 7.5) = 5.0 </code>,
+ * because 3 == 5 mod 2 *and* 5.0 is in range [5.0, 7.5[ *and* is closest to 3.0
+ */
+fun Double.modulusToRange(mod: Double, atLeast: Double = 0.0, atMost:Double = Double.MAX_VALUE): Double {
+    if (mod <= 0) throw IllegalArgumentException("Modulus for non-positive number ($mod) is not allowed !")
+    if (atLeast > atMost) throw IllegalArgumentException("Lower bound $atLeast must not exceed upper bound $atMost !")
+    var result = this
+
+    if (this > atMost) {
+        val dist = this - atMost
+        val nextMult = ceil(dist/mod) *mod
+        result -= nextMult
+    } else if (this < atLeast) {
+        val dist = atLeast - this
+        val nextMult = ceil(dist/mod) *mod
+        result += nextMult
+    }
+
+    if (result in atLeast..atMost) return result
+    else throw IllegalArgumentException("Calculated $this mod $mod = $result, out of bounds for ($atLeast, $atMost) !")
 }

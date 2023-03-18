@@ -1,8 +1,10 @@
 package bpm
 
-import modulusToRange
+import utils.modulusToRange
 
 class OnBeatFunction(val interval: Double, val offset: Double, val function: () -> Unit) {
+
+    var isSkippingFunction = false
 
     var nextInvokeOn: Double = 0.0
     init {
@@ -11,7 +13,7 @@ class OnBeatFunction(val interval: Double, val offset: Double, val function: () 
 
     fun update(phase: Double) {
         if (phase > nextInvokeOn) {
-            function()
+            if (!isSkippingFunction) function()
             nextInvokeOn += interval
         }
     }

@@ -6,23 +6,46 @@ import org.openrndr.*
 import org.openrndr.animatable.easing.Easing
 import org.openrndr.color.ColorRGBa
 import org.openrndr.draw.Drawer
-import org.openrndr.draw.shadeStyle
-import org.openrndr.extra.noise.simplex
+import org.openrndr.draw.colorBuffer
+import org.openrndr.draw.isolatedWithTarget
+import org.openrndr.draw.renderTarget
+import org.openrndr.extra.fx.blur.Bloom
+import org.openrndr.extra.fx.blur.BoxBlur
 import org.openrndr.math.Vector2
 import org.openrndr.math.map
-import org.openrndr.panel.elements.round
 import org.openrndr.shape.Triangle
-import utils.vh
-import utils.vw
-import kotlin.math.ceil
+import utils.*
 
+/**
+ * TODO: add explanation here
+ *
+ * Vocabulary:
+ * rel - relative,
+ * abs - absolute,
+ * fac - factor,
+ * repo - repository (object that contains related data like ColorRepo and can be asked for certain values),
+ * env - envelope (curve over [0, 1] -> R, is used as a mapping function)
+ */
 fun main() = application {
     configure {
+        display = displays[1]
         fullscreen = Fullscreen.CURRENT_DISPLAY_MODE
     }
     program {
         // Special config
         mouse.cursorVisible = false
+
+        // Render targets
+        val offscreen = renderTarget(width, height) {
+            colorBuffer()
+            depthBuffer()
+        }
+        val preImage = offscreen.colorBuffer(0)
+        val blur = BoxBlur()
+        val bloom = Bloom()
+        val blurred = colorBuffer(width, height)
+        val bloomed = colorBuffer(width, height)
+        val clearImage = colorBuffer(width, height)
 
         // Init repos
         val colorRepo = ColorRepo(
@@ -31,50 +54,121 @@ fun main() = application {
             ColorRGBa.fromHex("#ff0090"),
             ColorRGBa.fromHex("#ffb300")
         )
-        val ledRepo = LedRepo(25)
+        val ledRepo = LedRepo(40)
         val bpmRepo = BpmRepo(122.0, this)  // "Daily Routines" by Oliver Schories
 
-        // TODO: val noiseRepo = NoiseRepo()
-        //   val noiseFunc = { seed: Int, x: Int -> simplex(seed, x*0.01) * 0.5 + 0.5 }
-
-        // Configuration
-        val controlPointEnv = bpmRepo.addEnvelopeFromSegments(2.0) {
-            join(.50, .40)
-            join(1.0, .25) via Easing.CubicIn
-            currentX = .70                              // Can be set any time, if you want to
-            join(1.5, .25)
-            join(2.0, .00)                     // Exceeding the beatCount value will do nothing
-        }
-
-        fun addTriangle(pos: Vector2) {
-            ledRepo.addLED(getTriangleLED(pos, 30.0, 90.0, colorRepo.color))
-            colorRepo.pick()
-        }
-
+        // SETUP //
         var holdSuspense = false
 
-        bpmRepo.addOnBeatFunction(.10) {
+        val triangleShape = run {
+            val size = 30.0
+            val rot = 90.0
 
-
-            val phase = bpmRepo.phase
-            val sample = controlPointEnv.sample(phase)
-
-            val v =  if(!holdSuspense) Vector2(
-                phase.mod(4.0).map(0.0, 4.0, 0.2, 0.8) * width,
-                sample.map(0.0, 1.0, 0.8, 0.2) * height
-            ) else Vector2(vw(0.2), vh(0.8))
-            addTriangle(v)
+            val off = Vector2(size, 0.0)
+            val posList = List(3) { off.rotate(360.0/3*it + rot) }
+            Triangle(posList[0], posList[1], posList[2]).shape
         }
 
-        var cornerCounter = 0
-        bpmRepo.addOnBeatFunction(1.0, 0.5) {
-            cornerCounter++
-            val x = if (cornerCounter.plus(1)%4 > 1) vw(.1) else vw(.9)
-            val y = if (cornerCounter.plus(2)%4 > 1) vh(.1) else vh(.9)
-            addTriangle(Vector2(x,y))
+        fun createTriangleLED(pos: Vector2): BacklightLED {
+            colorRepo.pick()
+            val color = colorRepo.color
+            return BacklightLED(triangleShape, pos, 0.0, color)
         }
 
+        fun Drawer.drawBacklightLED(backlightLED: BacklightLED, luminanceFac: Double) {
+            val (shape, pos, rot,  color) = backlightLED
 
+            pushStyle()
+            pushTransforms()
+
+            shadeStyle = null
+            fill =  color.shade(luminanceFac)
+            stroke = ColorRGBa.BLACK
+            translate(pos)
+            rotate(rot)
+            shape(shape)
+
+            popStyle()
+            popTransforms()
+        }
+
+        // MAIN CONTENT //
+        val mainCurveEnv = bpmRepo.addEnvelopeFromSegments(2.0) {
+            val att = .60 // attack dist
+            val sus = .30 // sustain dist
+
+            join(.50, att)
+            join(.75, sus)
+            join(1.0, sus)
+            currentX = 1.0
+            join(1.5, 1.0-att)
+            join(1.75, 1.0-sus)
+            join(2.0, 1.0-sus)
+        }
+        val luminanceEnv = bpmRepo.addEnvelopeFromSegments(8.0) {
+            join(.05, 0.9) via Easing.CubicIn
+            join(1.0, 1.0)
+            join(2.0, 0.0) via Easing.CubicOut
+            join(8.0, 0.0)
+        }
+
+        val mainTrigCount = 40
+        val mainTrigsPerBeat = 10
+        ledRepo.ledMap["main"] = List(mainTrigCount) { index ->
+            val phase = index.toDouble() / mainTrigsPerBeat
+            val sample = mainCurveEnv.sample(phase)
+
+            val x = (phase%4.0) .map(0.0, 4.0, 0.2, 0.8) * width
+            val y = sample      .map(0.0, 1.0, 0.8, 0.2) * height
+            createTriangleLED(Vector2(x, y))
+        }
+
+        // LISSAJOUS //
+
+        // CORNERS //
+        ledRepo.ledMap["corner"] = List(4) { index ->
+            val x = if (index.plusMod(1, 4) > 1) vw(.1) else vw(.9)
+            val y = if (index.plusMod(2, 4) > 1) vh(.1) else vh(.9)
+            createTriangleLED(Vector2(x, y))
+        }
+        val cornerLuminanceEnv = bpmRepo.addEnvelopeFromSegments(4.0) {
+            join(0.125, 1.0) via Easing.SineInOut
+            join(1.0, 0.0) via Easing.CubicIn
+            join(4.0, 0.0)
+        }
+
+        // DRAW //
+        extend {
+            //drawer.clear(ColorRGBa.GRAY) // Debugging only, gray background
+
+            clearImage.copyTo(preImage)
+
+            val phase = bpmRepo.phase // get once to avoid timing issues
+
+            ledRepo.ledMap["corner"]!!.forEachIndexed { index, led ->
+                val lum = cornerLuminanceEnv.sample(phase, index.toDouble())
+                drawer.isolatedWithTarget(offscreen) { drawBacklightLED(led, lum) }
+            }
+            ledRepo.ledMap["main"]!!.forEachIndexed { index, led ->
+                val relIndex = index / mainTrigCount.toDouble()
+                val lum = luminanceEnv.sample(phase, relIndex)
+                led.rotation = luminanceEnv.sample(phase, relIndex-0.1).map(0.0, 1.0, 0.0, 60.0)
+                led.color = colorRepo.run { pick(); color }
+                drawer.isolatedWithTarget(offscreen) { drawBacklightLED(led, lum) }
+            }
+            blur.window = 30
+            // bloom.gain = 0.5
+            bloom.blendFactor = 0.99
+
+
+            blur.apply(preImage, blurred)
+            bloom.apply(preImage, bloomed)
+            drawer.image(bloomed)
+            drawer.image(blurred)
+
+        }
+
+        // CONTROLS //
         keyboard.keyDown.listen {
             when (it.key) {
                 KEY_ESCAPE -> application.exit()
@@ -83,6 +177,9 @@ fun main() = application {
             when (it.name) {
                 "p" -> colorRepo.setNextPickFunc()
                 "h" -> holdSuspense = true
+                // "c" -> cornerInstancingObf::isSkippingFunction.flip()
+                // "m" -> mainEnvelopeInstancingObf::isSkippingFunction.flip()
+                // "l" -> lissajousInstancingObf::isSkippingFunction.flip()
             }
         }
 
@@ -94,98 +191,9 @@ fun main() = application {
 
         mouse.buttonDown.listen {
             when (it.button) {
-                MouseButton.LEFT -> addTriangle(mouse.position)
+                // MouseButton.LEFT -> addTriangle(mouse.position)
                 else -> return@listen
             }
         }
-
-        // DRAW
-        extend {
-            val ms = ledRepo.maxSize
-            val cs = ledRepo.ledList.size
-            val sizeFac = 1.0 / (ms - 1)
-            val relPhase = bpmRepo.phase % 1.0
-            val phaseFac = relPhase.map(0.0,1.0,0.8,0.2)
-
-            //drawer.clear(ColorRGBa.GRAY)
-
-            ledRepo.ledList.forEachIndexed { i, led ->
-                val ni = (ms - cs + i)
-                val lum = ni * sizeFac * phaseFac
-                drawer.drawBacklightLED(led, 0.6, lum)
-            }
-        }
     }
-}
-
-/////////////////////////////////////////////////////////////////////////////////////
-
-private var counter = 0
-fun Program.getRandomScreenPos(noiseFunc: (seed:Int, x: Int) -> Double) : Vector2 {
-    counter++
-    return Vector2(noiseFunc(42, counter) * width, noiseFunc(43, counter) * height)
-}
-
-/////////////////////////////////////////////////////////////////////////////////////
-
-fun getTriangleLED(pos: Vector2, size: Double, rot: Double, color: ColorRGBa = ColorRGBa.PINK) : BacklightLED {
-    val off = Vector2(size, 0.0)
-    val posList = List(3) { pos + off.rotate(360.0/3*it + rot) }
-    val shape = Triangle(posList[0], posList[1], posList[2]).shape
-    return BacklightLED(shape, pos, color)
-}
-
-/////////////////////////////////////////////////////////////////////////////////////
-
-fun Drawer.drawBacklightLED(backlightLED: BacklightLED, opacity: Double, luminosity: Double) {
-    val (shape, center, color) = backlightLED
-
-    pushStyle()
-    pushTransforms()
-
-    this.shadeStyle = shadeStyle {
-        fragmentTransform = """
-            vec2 pos = c_screenPosition.xy;
-            pos.x = pos.x - ${center.x.round(3)};
-            pos.y = pos.y - ${center.y.round(3)};
-            x_fill.rgba *= vec4(1.0/(1.0+length(pos)*0.02)*1.2);
-            """.trimIndent()
-    }
-    val c = color.toHSVa().copy(v = luminosity, alpha = opacity).toRGBa()
-    this.fill = c
-    this.rectangle(0.0, 0.0, width.toDouble(), height.toDouble())
-
-    popStyle()
-    popTransforms()
-
-    this.fill = c
-    this.shape(shape)
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Add to utils in playground (or make submodule)
-
-/**
- * Calculates the mathematical correct modulus of [this] Double, constrained to given range.
- * The range is defined as the bounds-inclusive interval ([atLeast], [atMost]).
- * Throws [IllegalArgumentException] in bad argument cases.
- */
-fun Double.modulusToRange(mod: Double, atLeast: Double = 0.0, atMost:Double = Double.MAX_VALUE): Double {
-    if (mod <= 0) throw IllegalArgumentException("Modulus for non-positive number ($mod) is not allowed !")
-    if (atLeast > atMost) throw IllegalArgumentException("Lower bound $atLeast must not exceed upper bound $atMost !")
-    var result = this
-
-    if (this > atMost) {
-        val dist = this - atMost
-        val nextMult = ceil(dist/mod) *mod
-        result -= nextMult
-    } else if (this < atLeast) {
-        val dist = atLeast - this
-        val nextMult = ceil(dist/mod) *mod
-        result += nextMult
-    }
-
-    if (result in atLeast..atMost) return result
-    else throw IllegalArgumentException("Calculated $this mod $mod = $result, out of bounds for ($atLeast, $atMost) !")
 }

@@ -6,6 +6,9 @@ import org.openrndr.Extension
 import org.openrndr.Program
 import org.openrndr.draw.Drawer
 
+/**
+ * Provides bpm-derived values, current phase, onBeatFunction(s)
+ */
 class BpmRepo(val bpm: Double, program: Program) : Extension {
 
     val bps = bpm/60.0
@@ -13,6 +16,7 @@ class BpmRepo(val bpm: Double, program: Program) : Extension {
 
     // TODO: add targetPhase and provide value blending over time
     var phase = 0.0
+        private set
 
     override var enabled = true
     override fun beforeDraw(drawer: Drawer, program: Program) {

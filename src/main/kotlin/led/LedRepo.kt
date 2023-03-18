@@ -1,14 +1,16 @@
 package led
 
 class LedRepo (
-    val maxSize: Int
+    val maxDynamicsCount: Int
 ) {
 
-    val ledList = mutableListOf<BacklightLED>()
+    val ledMap = mutableMapOf<String, List<BacklightLED>>()
 
-    fun addLED(backlightLED: BacklightLED) {
-        ledList += backlightLED
-        while (ledList.size > maxSize) ledList.removeFirst()
+    val dynamicLeds = mutableListOf<BacklightLED>()
+
+    fun addDynamicLED(backlightLED: BacklightLED) {
+        dynamicLeds += backlightLED
+        while (dynamicLeds.size > maxDynamicsCount) dynamicLeds.removeFirst()
     }
 
 }
