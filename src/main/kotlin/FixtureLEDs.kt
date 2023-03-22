@@ -1,8 +1,7 @@
 import bpm.BpmRepo
 import colors.ColorRepo
 import fx.Darkify
-import org.openrndr.Program
-import org.openrndr.application
+import org.openrndr.*
 import org.openrndr.color.ColorRGBa
 import org.openrndr.color.ColorRGBa.Companion.TRANSPARENT
 import org.openrndr.color.ColorXSVa
@@ -15,24 +14,24 @@ import kotlin.reflect.KProperty
 
 fun main() = application {
     configure {
-        width = 640
-        height = 480
+        width = 640; height = 480
+        fullscreen = Fullscreen.CURRENT_DISPLAY_MODE
         display = displays.last()
     }
     program {
 
         // Init BPM
-        val Bpm = BpmRepo(128.0, this)
-        val Color = ColorRepo(
-            *((0..3)
-                .map { index ->
-                    index * 90.0
-                }.map { xue ->
-                    ColorXSVa(xue, 1.0, 1.0).toRGBa()
-                }
-                .toTypedArray()
-            )
-        )
+        val bpmRepo = BpmRepo(130.0, this)
+        val colorRepo = ColorRepo(
+        *( List(32)
+            { index ->
+                index * 360.0/32
+            }.map { xue ->
+                ColorXSVa(xue, 1.0, 1.0).toRGBa()
+            }
+            .toTypedArray()
+                )
+    )
 
         // Init pipeline
         val rt = renderTarget(width, height) {
@@ -44,7 +43,7 @@ fun main() = application {
 
         // Init Fx
         val blurFx = ApproximateGaussianBlur().apply {
-            window = 15 // by GuiSlider("blurFx/window/", 16, 0, 30)
+            window = 16 // by GuiSlider("blurFx/window/", 16, 0, 30)
             sigma = 3.0
             spread = 1.0
             gain = 1.4
@@ -56,7 +55,7 @@ fun main() = application {
             darkFac = 0.8
         }
         val frameBlurFx = FrameBlur().apply {
-            blend = 0.1
+            blend = 0.25
         }
 
         // Init blend
@@ -64,12 +63,11 @@ fun main() = application {
 
         // Setup positions and patterns
         val pillarWidth by 2.0 / 3.0 * width
-        val pillarCount = 4
+        val pillarCount = 8
         val pillarDist by pillarWidth / (pillarCount - 1)
 
         fun Drawer.pillar(index: Int) {
-            fill = Color.color
-            stroke = Color.color
+            stroke = colorRepo.colorList[14+index]
             strokeWeight = 20.0
 
             val x = (width - pillarWidth)/2.0 + index*pillarDist
@@ -82,7 +80,7 @@ fun main() = application {
 
         extend {
             // Draw procedure
-            val phase = Bpm.phase
+            val phase = bpmRepo.phase
             val kickCounter = phase.toIntervalCount(1.0) % pillarCount
 
             onRenderTarget(rt, clearColor = TRANSPARENT) {
@@ -106,6 +104,12 @@ fun main() = application {
         }
 
         // Assign Input
+        keyboard.keyDown.listen {
+            when(it.key) {
+                KEY_ESCAPE -> application.exit()
+                KEY_SPACEBAR -> bpmRepo.reset()
+            }
+        }
     }
 }
 
