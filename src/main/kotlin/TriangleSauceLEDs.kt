@@ -13,8 +13,12 @@ import org.openrndr.extra.fx.blur.Bloom
 import org.openrndr.extra.fx.blur.BoxBlur
 import org.openrndr.math.Vector2
 import org.openrndr.math.map
+import org.openrndr.shape.Rectangle
 import org.openrndr.shape.Triangle
+import org.openrndr.shape.map
 import utils.*
+import kotlin.math.PI
+import kotlin.math.sin
 
 /**
  * TODO: add explanation here
@@ -35,17 +39,16 @@ fun main() = application {
         // Special config
         mouse.cursorVisible = false
 
-        // Render targets
+        // Init graphics pipeline
         val offscreen = renderTarget(width, height) {
             colorBuffer()
             depthBuffer()
         }
-        val preImage = offscreen.colorBuffer(0)
+        val offBuffer = offscreen.colorBuffer(0)
         val blur = BoxBlur()
         val bloom = Bloom()
         val blurred = colorBuffer(width, height)
         val bloomed = colorBuffer(width, height)
-        val clearImage = colorBuffer(width, height)
 
         // Init repos
         val colorRepo = ColorRepo(
@@ -55,7 +58,7 @@ fun main() = application {
             ColorRGBa.fromHex("#ffb300")
         )
         val ledRepo = LedRepo(40)
-        val bpmRepo = BpmRepo(122.0, this)  // "Daily Routines" by Oliver Schories
+        val bpmRepo = BpmRepo(130.0, this)  // 122 - "Daily Routines" by Oliver Schories, 130 - "Si Soy Fuego" by Paul Kalkbrenner
 
         // SETUP //
         var holdSuspense = false
@@ -124,6 +127,29 @@ fun main() = application {
         }
 
         // LISSAJOUS //
+        /**
+         * Lissajous sampling with the usual [a], [b], [delta] parameters.
+         * Sampled over [phaseStart] to [phaseEnd]. Always right exclusive.
+         * Sampling is equidistant over phase domain, with [size] many points.
+         */
+        fun lissajousListOf(
+            a: Double, b: Double, delta: Double = PI/2.0,
+            phaseStart: Double, phaseEnd: Double, size: Int
+        ) : List<Vector2> {
+            return (0 until size).map{ index ->
+                index.map(0, size-1, phaseStart, phaseEnd)
+            }.map { phase ->
+                val x = sin((a * phase) * TAU)
+                val y = sin((b * phase) * TAU + delta)
+                Vector2(x, y)
+            }
+        }
+        val lissajousRange = Rectangle(-1.0, -1.0, 2.0, 2.0)
+        val screenRange = Rectangle(vw(.2), vh(.2), vw(.6), vh(.6))
+        ledRepo.ledMap["lissajous"] = lissajousListOf(1.0, 2.0, phaseStart = 0.0, phaseEnd = 2.0, size = 16).map { v ->
+            val screenPos = v.map(lissajousRange, screenRange).run { copy(y = height - y) }
+            createTriangleLED(screenPos)
+        }
 
         // CORNERS //
         ledRepo.ledMap["corner"] = List(4) { index ->
@@ -141,7 +167,8 @@ fun main() = application {
         extend {
             //drawer.clear(ColorRGBa.GRAY) // Debugging only, gray background
 
-            clearImage.copyTo(preImage)
+            // Clear pre-pass color buffer
+            offBuffer.fill(ColorRGBa.TRANSPARENT)
 
             val phase = bpmRepo.phase // get once to avoid timing issues
 
@@ -157,15 +184,13 @@ fun main() = application {
                 drawer.isolatedWithTarget(offscreen) { drawBacklightLED(led, lum) }
             }
             blur.window = 30
-            // bloom.gain = 0.5
             bloom.blendFactor = 0.99
 
 
-            blur.apply(preImage, blurred)
-            bloom.apply(preImage, bloomed)
+            blur.apply(offBuffer, blurred)
+            bloom.apply(offBuffer, bloomed)
             drawer.image(bloomed)
             drawer.image(blurred)
-
         }
 
         // CONTROLS //
