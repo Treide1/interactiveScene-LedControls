@@ -32,7 +32,7 @@ import kotlin.math.sin
  */
 fun main() = application {
     configure {
-        display = displays[1]
+        display = displays.last()
         fullscreen = Fullscreen.CURRENT_DISPLAY_MODE
     }
     program {
