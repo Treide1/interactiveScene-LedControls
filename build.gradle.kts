@@ -56,7 +56,7 @@ val orxFeatures = setOf<String>(
 //  "orx-time-operators",
 //  "orx-timer",
 //  "orx-triangulation",
-//  "orx-video-profiles",
+    "orx-video-profiles",
 )
 
 /** ## additional ORML features to be added to this project */
